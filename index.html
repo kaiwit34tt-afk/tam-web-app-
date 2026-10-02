@@ -1,0 +1,1517 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title id="pageTitle">ระบบวิเคราะห์คอขวดการผลิต (Machine Cycle & Bottleneck Analysis)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Google Fonts: Sarabun -->
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Sarabun', sans-serif;
+            background-color: #f4f7fe;
+        }
+
+        .header-bg {
+            background-color: #0b1437;
+            background-image: radial-gradient(circle at 100% 0%, #1a2552 0%, transparent 50%);
+        }
+
+        .tab-btn {
+            position: relative;
+            color: #8f9bba;
+            transition: all 0.3s ease;
+        }
+        .tab-btn:hover {
+            color: #2b3674;
+            background-color: #f4f7fe;
+        }
+        .tab-btn.active {
+            color: #2b3674;
+            font-weight: 700;
+            background-color: white;
+            border-bottom: 3px solid #4318ff;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.02);
+            transition: transform 0.2s;
+            border: 1px solid #e2e8f0;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0px 10px 20px rgba(0, 0, 0, 0.05);
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+
+        .process-line {
+            height: 3px;
+            background: #e2e8f0;
+            width: 100%;
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 0;
+        }
+        @keyframes pulse-bottleneck {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); border-color: #ef4444; }
+            50% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); border-color: #dc2626; }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); border-color: #ef4444; }
+        }
+        .bottleneck-node {
+            animation: pulse-bottleneck 2s infinite;
+            border-width: 2px !important;
+        }
+        .stage-enter {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .custom-input {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 12px;
+            transition: all 0.2s;
+        }
+        .custom-input:focus {
+            outline: none;
+            border-color: #4318ff;
+            box-shadow: 0 0 0 3px rgba(67, 24, 255, 0.1);
+        }
+
+        .timer-display {
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-gray-700 flex flex-col justify-between">
+
+    <header class="header-bg text-white py-4 px-6 shadow-lg flex justify-between items-center sticky top-0 z-50">
+        <div class="flex items-center gap-4">
+            <div class="bg-indigo-600 bg-opacity-30 p-2.5 rounded-xl border border-indigo-400">
+                <i class="fas fa-industry text-2xl text-blue-300"></i>
+            </div>
+            <div>
+                <h1 id="headerSystemName" class="text-xl md:text-2xl font-bold tracking-wide">ระบบวิเคราะห์คอขวดการผลิต (Machine Cycle & Bottleneck)</h1>
+                <p class="text-xs text-blue-200 mt-1 opacity-85">ระบบบันทึก วิเคราะห์ และจัดเก็บข้อมูลรอบเวลาการผลิตอัจฉริยะ (Microsoft Teams & Shared Drive Ready)</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="hidden sm:flex items-center gap-3 bg-white bg-opacity-10 py-2 px-4 rounded-full border border-white border-opacity-10">
+                <div class="text-right">
+                    <p class="text-[10px] text-blue-200 uppercase tracking-wider">ผู้บันทึกระบบ</p>
+                    <p id="displayRecorderName" class="text-sm font-semibold text-white">วิศวกรฝ่ายผลิต (IE)</p>
+                </div>
+                <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center font-bold text-sm shadow-inner" id="displayRecorderInitials">IE</div>
+            </div>
+            <button id="btnOpenSettings" class="bg-white bg-opacity-10 hover:bg-opacity-25 text-white p-2.5 rounded-xl transition border border-white border-opacity-15 flex items-center gap-2 text-sm font-medium" title="ตั้งค่าระบบ / เปลี่ยนผู้บันทึก">
+                <i class="fas fa-cog"></i> <span class="hidden md:inline">ตั้งค่าระบบ</span>
+            </button>
+        </div>
+    </header>
+
+    <div class="w-full max-w-[1450px] mx-auto px-4 py-6 flex flex-col space-y-6 flex-grow">
+        
+        <div class="bg-white rounded-xl shadow-sm flex overflow-x-auto border border-gray-100 p-1">
+            <button class="tab-btn active flex-1 py-3 px-4 font-medium text-sm flex items-center justify-center gap-2 whitespace-nowrap rounded-lg" data-target="view-dashboard">
+                <i class="fas fa-th-large text-blue-500"></i> แดชบอร์ดภาพรวม & คอขวด
+            </button>
+            <button class="tab-btn flex-1 py-3 px-4 font-medium text-sm flex items-center justify-center gap-2 whitespace-nowrap rounded-lg" data-target="view-condition">
+                <i class="fas fa-stopwatch text-green-500"></i> บันทึกผลการทดลอง (Condition)
+            </button>
+            <button class="tab-btn flex-1 py-3 px-4 font-medium text-sm flex items-center justify-center gap-2 whitespace-nowrap rounded-lg" data-target="view-machines">
+                <i class="fas fa-cogs text-purple-500"></i> จัดการเครื่องจักร
+            </button>
+            <button class="tab-btn flex-1 py-3 px-4 font-medium text-sm flex items-center justify-center gap-2 whitespace-nowrap rounded-lg" data-target="view-history">
+                <i class="fas fa-history text-amber-500"></i> ประวัติการบันทึก & ส่งออก Excel
+            </button>
+        </div>
+
+        <div id="view-dashboard" class="flex flex-col space-y-6">
+            
+            <!-- Filters -->
+            <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm flex flex-wrap gap-6 items-center justify-between">
+                <div class="flex flex-wrap items-center gap-4 flex-1">
+                    <div class="flex flex-col">
+                        <label class="text-xs font-bold text-gray-400 uppercase mb-1">เลือกเครื่องจักร (Machine)</label>
+                        <select id="dashMachineSelect" class="custom-input bg-gray-50 min-w-[220px]">
+                            <option value="">-- ทุกเครื่องจักร --</option>
+                        </select>
+                    </div>
+                    <div class="flex flex-col">
+                        <label class="text-xs font-bold text-gray-400 uppercase mb-1">สถานะการทดลอง (Condition)</label>
+                        <select id="dashConditionSelect" class="custom-input bg-gray-50 min-w-[220px]">
+                            <option value="">-- ทุกเงื่อนไขการทดลอง --</option>
+                            <option value="before">ก่อนปรับปรุง (Before Kaizen)</option>
+                            <option value="after">หลังปรับปรุง (After Kaizen)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <button id="btnSaveExcelOnline" class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2.5 rounded-lg shadow-md transition-colors flex items-center gap-2 font-medium">
+                        <i class="fas fa-cloud-upload-alt"></i> บันทึกลง Excel (M365)
+                    </button>
+                    <button id="btnSaveHistoryRecord" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg shadow-md transition-colors flex items-center gap-2 font-medium">
+                        <i class="fas fa-bookmark"></i> บันทึกลงประวัติ
+                    </button>
+                    <button id="btnSaveToGoogleSheet" class="bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-lg shadow-md transition-colors flex items-center gap-2 font-medium">
+                        <i class="fas fa-table"></i> ส่งข้อมูลเข้า Google Sheet
+                    </button>
+                    <button id="goToTimerBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg shadow-md transition-colors flex items-center gap-2 font-medium">
+                        <i class="fas fa-play-circle"></i> ไปหน้าจับเวลา
+                    </button>
+                </div>
+            </div>
+
+            <!-- 4 Stat Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="stat-card border-l-4 border-l-blue-500">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">เวลารวมรอบการผลิต (Total Cycle Time)</h3>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-4xl font-black text-[#2b3674]" id="statTotalTime">0.00</span>
+                        <span class="text-sm font-medium text-gray-500">วินาที</span>
+                    </div>
+                    <div class="mt-2 text-xs font-medium text-gray-400 bg-gray-50 inline-block px-2 py-1 rounded">
+                        <i class="fas fa-clock text-blue-400 mr-1"></i> เทียบเท่า <span id="statTotalTimeMin">0.00</span> นาที
+                    </div>
+                </div>
+
+                <div class="stat-card border-l-4 border-l-red-500 relative overflow-hidden">
+                    <div class="absolute -right-4 -top-4 opacity-10 text-red-500"><i class="fas fa-exclamation-triangle text-6xl"></i></div>
+                    <h3 class="text-xs font-bold text-red-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                        <i class="fas fa-fire"></i> จุดคอขวด (Bottleneck)
+                    </h3>
+                    <div class="mb-1 truncate w-full">
+                        <span class="text-xl font-bold text-gray-800" id="statBottleneckName">-</span>
+                    </div>
+                    <div class="mt-2 text-sm font-bold text-red-600 bg-red-50 inline-block px-2 py-1 rounded">
+                        ใช้เวลา: <span id="statBottleneckTime">0.00</span> วินาที
+                    </div>
+                </div>
+
+                <div class="stat-card border-l-4 border-l-green-500">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">เวลาที่ลดลง (Kaizen Improvement)</h3>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-4xl font-black text-green-600" id="statImprovementTime">0.00</span>
+                        <span class="text-sm font-medium text-gray-500">วินาที</span>
+                    </div>
+                    <div class="mt-2 text-xs font-medium text-green-700 bg-green-50 inline-block px-2 py-1 rounded">
+                        <i class="fas fa-arrow-trend-up mr-1"></i> พัฒนาขึ้น <span id="statImprovementPercent">0.00</span>%
+                    </div>
+                </div>
+
+                <div class="stat-card border-l-4 border-l-purple-500">
+                    <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">จำนวนการบันทึกทั้งหมด</h3>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-4xl font-black text-[#2b3674]" id="statTotalRecords">0</span>
+                        <span class="text-sm font-medium text-gray-500">รายการ</span>
+                    </div>
+                    <div class="mt-2 text-xs font-medium text-purple-700 bg-purple-50 inline-block px-2 py-1 rounded">
+                        <i class="fas fa-database mr-1"></i> บันทึกอัตโนมัติในเครื่อง
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm flex flex-col items-center">
+                    <h2 class="text-base font-bold text-[#2b3674] mb-4 w-full flex items-center justify-between">
+                        <span>สัดส่วนเวลาแต่ละขั้นตอน (Cycle Time Breakdown)</span>
+                        <i class="fas fa-chart-pie text-blue-400"></i>
+                    </h2>
+                    <div class="relative w-full max-w-[300px] aspect-square flex items-center justify-center">
+                        <canvas id="pieChart"></canvas>
+                        <div id="pieEmptyState" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-full border border-dashed border-gray-300">
+                            <i class="fas fa-info-circle text-2xl mb-2"></i>
+                            <span class="text-sm">ไม่มีข้อมูลเวลา</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl p-6 border border-gray-100 shadow-sm flex flex-col">
+                    <h2 class="text-base font-bold text-[#2b3674] mb-4 w-full flex items-center justify-between">
+                        <span>เปรียบเทียบ ก่อน/หลัง ปรับปรุง (Before vs After Kaizen)</span>
+                        <i class="fas fa-chart-bar text-green-400"></i>
+                    </h2>
+                    <div class="relative w-full h-[300px] flex-grow flex items-center justify-center">
+                        <canvas id="barChart"></canvas>
+                        <div id="barEmptyState" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                            <i class="fas fa-balance-scale text-2xl mb-2"></i>
+                            <span class="text-sm text-center px-4">บันทึกข้อมูลทั้ง "ก่อน" และ "หลัง" ปรับปรุง<br>เพื่อดูการเปรียบเทียบในกราฟ</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recommendation Box -->
+            <div class="bg-gradient-to-r from-[#eef2ff] to-[#f8fafc] border border-indigo-100 rounded-xl p-5 flex items-start gap-5 shadow-sm">
+                <div class="bg-indigo-600 text-white rounded-xl w-12 h-12 flex-shrink-0 flex items-center justify-center text-2xl shadow-md">
+                    <i class="fas fa-lightbulb"></i>
+                </div>
+                <div class="flex-grow">
+                    <h3 class="text-base font-bold text-indigo-900 mb-2">วิเคราะห์คอขวดและข้อเสนอแนะ (Bottleneck Analysis & Recommendation)</h3>
+                    <p class="text-sm text-indigo-700 leading-relaxed" id="recommendationText">
+                        ระบบกำลังวิเคราะห์กระบวนการผลิต กรุณาเลือกเครื่องจักรหรือเพิ่มขั้นตอนการทำงานเพื่อเริ่มประเมินประสิทธิภาพ
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-condition" class="hidden flex-col space-y-6">
+            <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <p class="text-xs text-gray-500 font-bold uppercase tracking-wider mb-1">กำลังบันทึกข้อมูลเครื่องจักร:</p>
+                    <h2 class="text-xl font-black text-[#2b3674] flex items-center gap-2">
+                        <i class="fas fa-server text-blue-500"></i> <span id="lblCurrentMachine">-</span>
+                    </h2>
+                    <div class="mt-2 flex items-center gap-3">
+                        <div class="inline-flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-full text-sm font-medium">
+                            <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                            เงื่อนไข: <span id="lblCurrentConditionText" class="text-gray-700">ก่อนปรับปรุง</span>
+                        </div>
+                        <select id="selectConditionToggle" class="custom-input text-xs py-1 bg-white">
+                            <option value="before">ก่อนปรับปรุง (Before Kaizen)</option>
+                            <option value="after">หลังปรับปรุง (After Kaizen)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex gap-3">
+                    <button id="btnAddStage" class="bg-[#4318ff] hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium shadow-md transition flex items-center gap-2">
+                        <i class="fas fa-plus"></i> เพิ่มขั้นตอน
+                    </button>
+                    <button id="btnClearStages" class="bg-white border border-gray-300 hover:bg-red-50 text-red-600 px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
+                        <i class="fas fa-trash-alt"></i> ล้างข้อมูลขั้นตอนนี้
+                    </button>
+                </div>
+            </div>
+
+            <!-- Process Flow Visualizer -->
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 overflow-hidden relative min-h-[220px] flex flex-col">
+                <h3 class="text-sm font-bold text-gray-700 mb-6 flex items-center gap-2">
+                    <i class="fas fa-project-diagram text-purple-500"></i> แผนภาพกระบวนการ (Process Flow Diagram)
+                </h3>
+                
+                <div id="processContainer" class="relative flex-grow flex items-center px-4 overflow-x-auto pb-4 scroll-smooth">
+                    <div id="processEmptyState" class="w-full text-center text-gray-400 py-6">
+                        <i class="fas fa-sitemap text-4xl mb-3 opacity-30"></i>
+                        <p>คลิกปุ่ม "เพิ่มขั้นตอน" เพื่อวาดแผนภาพการทำงาน</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Time Entry & Stopwatch List -->
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 flex flex-col flex-grow">
+                <div class="flex justify-between items-end mb-4 border-b border-gray-100 pb-4">
+                    <h3 class="text-sm font-bold text-gray-700 flex items-center gap-2">
+                        <i class="fas fa-stopwatch text-blue-500"></i> บันทึกเวลา & นาฬิกาจับเวลา (Stopwatch & Data Entry)
+                    </h3>
+                    <div class="text-sm font-medium text-gray-500">
+                        เวลารวม: <span id="lblSumTime" class="text-blue-600 font-bold text-lg">0.00</span> วินาที
+                    </div>
+                </div>
+
+                <div class="overflow-y-auto max-h-[550px] pr-2 flex flex-col gap-3" id="stageListContainer">
+                    <div id="stageListEmpty" class="text-center text-gray-400 py-10">
+                        ยังไม่มีขั้นตอนการทำงาน
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-machines" class="hidden flex-col space-y-6">
+            <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm flex justify-between items-center">
+                <div>
+                    <h2 class="text-lg font-bold text-[#2b3674]">จัดการข้อมูลเครื่องจักร (Machine Master Data)</h2>
+                    <p class="text-sm text-gray-500">เพิ่ม, แก้ไข, ลบ รายชื่อเครื่องจักรในระบบโรงงาน (ข้อมูลบันทึกในเครื่องอัตโนมัติ)</p>
+                </div>
+                <button id="btnNewMachine" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium shadow-md transition flex items-center gap-2">
+                    <i class="fas fa-plus-circle"></i> เพิ่มเครื่องจักรใหม่
+                </button>
+            </div>
+
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse whitespace-nowrap">
+                        <thead>
+                            <tr class="bg-gray-50 text-gray-500 border-b border-gray-200">
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider">รหัสเครื่องจักร (Code)</th>
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider">ชื่อเครื่องจักร (Name)</th>
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider">แผนก (Line)</th>
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider text-right">จัดการ (Actions)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="machineTableBody" class="divide-y divide-gray-100">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-history" class="hidden flex-col space-y-6">
+            <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm flex flex-wrap justify-between items-center gap-4">
+                <div>
+                    <h2 class="text-lg font-bold text-[#2b3674]">ประวัติการบันทึกการทดลอง & ส่งออกรายงาน</h2>
+                    <p class="text-sm text-gray-500">เก็บบันทึกผล Cycle Time ย้อนหลัง Export เป็น CSV/Excel และสำรองข้อมูลระบบสำหรับแชร์ในทีม</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-3">
+                    <button id="btnExportCSV" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition flex items-center gap-2 text-sm">
+                        <i class="fas fa-file-excel"></i> Export CSV / Excel
+                    </button>
+                    <button id="btnBackupJSON" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition flex items-center gap-2 text-sm">
+                        <i class="fas fa-download"></i> Backup ข้อมูล (JSON)
+                    </button>
+                    <label class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium shadow-sm transition flex items-center gap-2 text-sm cursor-pointer">
+                        <i class="fas fa-upload"></i> Restore ข้อมูล
+                        <input type="file" id="inpRestoreFile" accept=".json" class="hidden">
+                    </label>
+                </div>
+            </div>
+
+            <!-- Teams Sharing Info Box -->
+            <div class="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3 text-sm text-green-800">
+                <i class="fas fa-info-circle text-green-500 text-lg mt-0.5"></i>
+                <div>
+                    <span class="font-bold">คำแนะนำการใช้งานร่วมกับ Google Sheets:</span> 
+                    คุณสามารถตั้งค่า Web App URL ในเมนู "ตั้งค่าระบบ" เพื่อเชื่อมต่อและส่งข้อมูลเข้า Google Sheets ได้โดยตรง!
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse whitespace-nowrap">
+                        <thead>
+                            <tr class="bg-gray-50 text-gray-500 border-b border-gray-200">
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider">วันที่/เวลาบันทึก</th>
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider">เครื่องจักร</th>
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider">เงื่อนไข</th>
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider">จำนวนขั้นตอน</th>
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider">เวลารวม (s)</th>
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider">ผู้บันทึก</th>
+                                <th class="py-4 px-6 text-xs font-bold uppercase tracking-wider text-right">จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody" class="divide-y divide-gray-100">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Machine Form Modal -->
+    <div id="modalMachine" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm hidden flex items-center justify-center z-[100] transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden transform scale-95 transition-transform" id="modalMachineContent">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-[#2b3674]" id="modalMachineTitle">เพิ่มเครื่องจักรใหม่</h3>
+                <button id="btnCloseMachineModal" class="text-gray-400 hover:text-red-500 transition"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-6 space-y-4">
+                <input type="hidden" id="inpMachineId">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">รหัสเครื่องจักร (ID/Code) <span class="text-red-500">*</span></label>
+                    <input type="text" id="inpMachineCode" class="custom-input w-full" placeholder="เช่น MCH-001">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อเครื่องจักร (Name) <span class="text-red-500">*</span></label>
+                    <input type="text" id="inpMachineName" class="custom-input w-full" placeholder="เช่น เครื่องตัดเลเซอร์ (Laser Cutting)">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">แผนก / ไลน์ผลิต (Department/Line)</label>
+                    <input type="text" id="inpMachineLine" class="custom-input w-full" placeholder="เช่น Line A, Assembly">
+                </div>
+            </div>
+            <div class="bg-gray-50 px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+                <button id="btnCancelMachine" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition">ยกเลิก</button>
+                <button id="btnSaveMachine" class="px-4 py-2 bg-[#4318ff] text-white rounded-lg font-medium shadow-md hover:bg-indigo-700 transition">บันทึกข้อมูล</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="modalSettings" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm hidden flex items-center justify-center z-[100] transition-opacity">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden transform scale-95 transition-transform max-h-[90vh] flex flex-col" id="modalSettingsContent">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-[#2b3674]">ตั้งค่าระบบและเชื่อมต่อ Google Sheets</h3>
+                <button id="btnCloseSettingsModal" class="text-gray-400 hover:text-red-500 transition"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-6 space-y-4 overflow-y-auto flex-grow">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อระบบของโรงงาน (System / Plant Name)</label>
+                    <input type="text" id="inpSystemName" class="custom-input w-full" placeholder="เช่น ระบบวิเคราะห์การผลิต โรงงานชลบุรี">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อผู้บันทึกระบบ (Recorder Name / Position)</label>
+                    <input type="text" id="inpRecorderName" class="custom-input w-full" placeholder="เช่น นายสมชาย วิศวกรการผลิต">
+                </div>
+                
+                <hr class="border-gray-200 my-2">
+                <h4 class="text-sm font-bold text-green-700 flex items-center gap-2"><i class="fab fa-google"></i> ตั้งค่าการเชื่อมต่อ Google Sheets API (Apps Script Web App URL)</h4>
+                
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 mb-1">Web App URL</label>
+                    <input type="text" id="inpWebAppUrl" class="custom-input w-full text-xs font-mono" placeholder="https://script.google.com/macros/s/.../exec">
+                </div>
+
+                <div class="bg-green-50 p-3 rounded-xl text-xs text-green-800 leading-relaxed">
+                    <i class="fas fa-info-circle mr-1 font-bold"></i> นำ URL ที่ได้จากการ Deploy Google Apps Script มาใส่ที่นี่ เพื่อให้ระบบส่งข้อมูลไปยัง Google Sheets ที่คุณตั้งค่าไว้ได้
+                </div>
+            </div>
+            <div class="bg-gray-50 px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+                <button id="btnCancelSettings" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition">ยกเลิก</button>
+                <button id="btnSaveSettings" class="px-4 py-2 bg-[#4318ff] text-white rounded-lg font-medium shadow-md hover:bg-indigo-700 transition">บันทึกตั้งค่า</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert Modal -->
+    <div id="modalAlert" class="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm hidden flex items-center justify-center z-[110]">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 text-center">
+            <div id="alertIcon" class="mx-auto w-16 h-16 rounded-full bg-red-100 text-red-500 flex items-center justify-center text-3xl mb-4">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <h3 class="text-xl font-bold text-gray-800 mb-2" id="alertTitle">แจ้งเตือน</h3>
+            <p class="text-gray-500 text-sm mb-6" id="alertMessage">ข้อความแจ้งเตือน</p>
+            <div class="flex justify-center gap-3" id="alertButtons">
+                <button id="btnAlertOk" class="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium shadow hover:bg-blue-700 transition">ตกลง</button>
+                <button id="btnAlertCancel" class="hidden px-6 py-2 bg-gray-200 text-gray-800 rounded-lg font-medium hover:bg-gray-300 transition">ยกเลิก</button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-white border-t border-gray-200 py-3 text-center text-xs text-gray-400">
+        Machine Cycle & Bottleneck Analysis (Desktop Enterprise Edition) • Built for Industrial Lean & Kaizen Operations
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            
+            // --- LocalStorage Persistence Keys ---
+            const STORAGE_KEY_MACHINES = 'ie_plant_machines_v1';
+            const STORAGE_KEY_DATA = 'ie_plant_cycle_data_v1';
+            const STORAGE_KEY_HISTORY = 'ie_plant_history_v1';
+            const STORAGE_KEY_CONFIG = 'ie_plant_config_v1';
+
+            // --- Default State ---
+            const defaultMachines = [
+                { id: 'm1', code: 'MCH-01', name: 'เครื่องบรรจุอัตโนมัติ (Automatic Packaging)', line: 'Line 1' },
+                { id: 'm2', code: 'MCH-02', name: 'เครื่องประกอบชิ้นส่วน (Assembly Robot)', line: 'Line 2' }
+            ];
+
+            const defaultData = {
+                'm1_before': [
+                    { id: 's1', name: 'ป้อนวัตถุดิบ', time: 5.5 },
+                    { id: 's2', name: 'ซีลพลาสติกบรรจุภัณฑ์', time: 14.2 },
+                    { id: 's3', name: 'ตรวจสอบรอยรั่ว', time: 8.0 }
+                ],
+                'm1_after': [
+                    { id: 's1', name: 'ป้อนวัตถุดิบ (Auto Feeder)', time: 2.5 },
+                    { id: 's2', name: 'ซีลพลาสติกบรรจุภัณฑ์ (High Speed)', time: 8.1 },
+                    { id: 's3', name: 'ตรวจสอบรอยรั่ว (Sensor Check)', time: 4.0 }
+                ]
+            };
+
+            // ตั้งค่าเริ่มต้นพร้อมฝัง Web App URL ของผู้ใช้เรียบร้อยแล้ว
+            const defaultConfig = {
+                systemName: 'ระบบวิเคราะห์คอขวดการผลิต (Machine Cycle & Bottleneck)',
+                recorderName: 'วิศวกรฝ่ายผลิต (IE)',
+                webAppUrl: 'https://script.google.com/macros/s/AKfycbz501DDDB691A0C01-QmR2Gu16kxCAmSHXFz_WcDeTryzMXuB97BAcZyqEzynpKJY0l/exec'
+            };
+
+            // --- Load State from LocalStorage ---
+            const loadState = () => {
+                try {
+                    const savedMachines = localStorage.getItem(STORAGE_KEY_MACHINES);
+                    const savedData = localStorage.getItem(STORAGE_KEY_DATA);
+                    const savedHistory = localStorage.getItem(STORAGE_KEY_HISTORY);
+                    const savedConfig = localStorage.getItem(STORAGE_KEY_CONFIG);
+
+                    return {
+                        machines: savedMachines ? JSON.parse(savedMachines) : defaultMachines,
+                        data: savedData ? JSON.parse(savedData) : defaultData,
+                        history: savedHistory ? JSON.parse(savedHistory) : [],
+                        config: savedConfig ? { ...defaultConfig, ...JSON.parse(savedConfig) } : defaultConfig,
+                        currentView: 'view-dashboard',
+                        selectedMachineId: 'm1',
+                        selectedCondition: 'before',
+                        activeTimers: {}
+                    };
+                } catch(e) {
+                    console.error("Error loading local storage:", e);
+                    return {
+                        machines: defaultMachines,
+                        data: defaultData,
+                        history: [],
+                        config: defaultConfig,
+                        currentView: 'view-dashboard',
+                        selectedMachineId: 'm1',
+                        selectedCondition: 'before',
+                        activeTimers: {}
+                    };
+                }
+            };
+
+            const state = loadState();
+
+            // --- Save State to LocalStorage ---
+            const saveStateToStorage = () => {
+                try {
+                    localStorage.setItem(STORAGE_KEY_MACHINES, JSON.stringify(state.machines));
+                    localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(state.data));
+                    localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(state.history));
+                    localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(state.config));
+                } catch(e) {
+                    console.error("Error saving to local storage:", e);
+                }
+            };
+
+            // Chart Instances
+            let chartPie = null;
+            let chartBar = null;
+
+            // --- DOM Elements Reference ---
+            const els = {
+                tabs: document.querySelectorAll('.tab-btn'),
+                views: document.querySelectorAll('div[id^="view-"]'),
+                
+                headerSystemName: document.getElementById('headerSystemName'),
+                pageTitle: document.getElementById('pageTitle'),
+                displayRecorderName: document.getElementById('displayRecorderName'),
+                displayRecorderInitials: document.getElementById('displayRecorderInitials'),
+                btnOpenSettings: document.getElementById('btnOpenSettings'),
+
+                // Dashboard
+                dashMachineSelect: document.getElementById('dashMachineSelect'),
+                dashConditionSelect: document.getElementById('dashConditionSelect'),
+                statTotalTime: document.getElementById('statTotalTime'),
+                statTotalTimeMin: document.getElementById('statTotalTimeMin'),
+                statBottleneckName: document.getElementById('statBottleneckName'),
+                statBottleneckTime: document.getElementById('statBottleneckTime'),
+                statImprovementTime: document.getElementById('statImprovementTime'),
+                statImprovementPercent: document.getElementById('statImprovementPercent'),
+                statTotalRecords: document.getElementById('statTotalRecords'),
+                recommendationText: document.getElementById('recommendationText'),
+                pieEmptyState: document.getElementById('pieEmptyState'),
+                barEmptyState: document.getElementById('barEmptyState'),
+                goToTimerBtn: document.getElementById('goToTimerBtn'),
+                btnSaveHistoryRecord: document.getElementById('btnSaveHistoryRecord'),
+                btnSaveToGoogleSheet: document.getElementById('btnSaveToGoogleSheet'),
+
+                // Condition View
+                lblCurrentMachine: document.getElementById('lblCurrentMachine'),
+                lblCurrentConditionText: document.getElementById('lblCurrentConditionText'),
+                selectConditionToggle: document.getElementById('selectConditionToggle'),
+                lblSumTime: document.getElementById('lblSumTime'),
+                processContainer: document.getElementById('processContainer'),
+                processEmptyState: document.getElementById('processEmptyState'),
+                stageListContainer: document.getElementById('stageListContainer'),
+                stageListEmpty: document.getElementById('stageListEmpty'),
+                btnAddStage: document.getElementById('btnAddStage'),
+                btnClearStages: document.getElementById('btnClearStages'),
+
+                // Machine View
+                machineTableBody: document.getElementById('machineTableBody'),
+                btnNewMachine: document.getElementById('btnNewMachine'),
+
+                // History View
+                historyTableBody: document.getElementById('historyTableBody'),
+                btnExportCSV: document.getElementById('btnExportCSV'),
+                btnBackupJSON: document.getElementById('btnBackupJSON'),
+                inpRestoreFile: document.getElementById('inpRestoreFile'),
+                
+                // Modals
+                modalMachine: document.getElementById('modalMachine'),
+                modalMachineContent: document.getElementById('modalMachineContent'),
+                modalMachineTitle: document.getElementById('modalMachineTitle'),
+                inpMachineId: document.getElementById('inpMachineId'),
+                inpMachineCode: document.getElementById('inpMachineCode'),
+                inpMachineName: document.getElementById('inpMachineName'),
+                inpMachineLine: document.getElementById('inpMachineLine'),
+                btnCloseMachineModal: document.getElementById('btnCloseMachineModal'),
+                btnCancelMachine: document.getElementById('btnCancelMachine'),
+                btnSaveMachine: document.getElementById('btnSaveMachine'),
+
+                modalSettings: document.getElementById('modalSettings'),
+                modalSettingsContent: document.getElementById('modalSettingsContent'),
+                inpSystemName: document.getElementById('inpSystemName'),
+                inpRecorderName: document.getElementById('inpRecorderName'),
+                inpWebAppUrl: document.getElementById('inpWebAppUrl'),
+                btnCloseSettingsModal: document.getElementById('btnCloseSettingsModal'),
+                btnCancelSettings: document.getElementById('btnCancelSettings'),
+                btnSaveSettings: document.getElementById('btnSaveSettings'),
+
+                modalAlert: document.getElementById('modalAlert'),
+                alertIcon: document.getElementById('alertIcon'),
+                alertTitle: document.getElementById('alertTitle'),
+                alertMessage: document.getElementById('alertMessage'),
+                btnAlertOk: document.getElementById('btnAlertOk'),
+                btnAlertCancel: document.getElementById('btnAlertCancel'),
+            };
+
+            // --- Helper Functions ---
+            const formatNumber = (num) => Number(num).toFixed(2);
+            const getDataKey = (mId, cond) => `${mId}_${cond}`;
+            
+            const getCurrentStages = () => {
+                if(!state.selectedMachineId) return [];
+                const key = getDataKey(state.selectedMachineId, state.selectedCondition);
+                if(!state.data[key]) state.data[key] = [];
+                return state.data[key];
+            };
+
+            const calculateStats = (stages) => {
+                let totalTime = 0;
+                let maxTime = -1;
+                let bottleneckStage = null;
+
+                stages.forEach(s => {
+                    const t = Number(s.time) || 0;
+                    totalTime += t;
+                    if (t > maxTime && t > 0) {
+                        maxTime = t;
+                        bottleneckStage = s;
+                    }
+                });
+                const throughput = totalTime > 0 ? Math.floor(3600 / totalTime) : 0;
+                return { totalTime, maxTime, bottleneckStage, throughput, stageCount: stages.length };
+            };
+
+            // --- Custom Alert System ---
+            let confirmCallback = null;
+            const showAlert = (title, message, type = 'info', onConfirm = null) => {
+                els.alertTitle.textContent = title;
+                els.alertMessage.textContent = message;
+                
+                if(type === 'error' || type === 'confirm') {
+                    els.alertIcon.className = 'mx-auto w-16 h-16 rounded-full bg-red-100 text-red-500 flex items-center justify-center text-3xl mb-4';
+                    els.alertIcon.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+                } else if (type === 'success') {
+                    els.alertIcon.className = 'mx-auto w-16 h-16 rounded-full bg-green-100 text-green-500 flex items-center justify-center text-3xl mb-4';
+                    els.alertIcon.innerHTML = '<i class="fas fa-check"></i>';
+                } else {
+                    els.alertIcon.className = 'mx-auto w-16 h-16 rounded-full bg-blue-100 text-blue-500 flex items-center justify-center text-3xl mb-4';
+                    els.alertIcon.innerHTML = '<i class="fas fa-info"></i>';
+                }
+
+                if(type === 'confirm') {
+                    els.btnAlertCancel.classList.remove('hidden');
+                    els.btnAlertOk.classList.replace('bg-blue-600', 'bg-red-600');
+                    els.btnAlertOk.classList.replace('hover:bg-blue-700', 'hover:bg-red-700');
+                    confirmCallback = onConfirm;
+                } else {
+                    els.btnAlertCancel.classList.add('hidden');
+                    els.btnAlertOk.classList.replace('bg-red-600', 'bg-blue-600');
+                    els.btnAlertOk.classList.replace('hover:bg-red-700', 'hover:bg-blue-700');
+                    confirmCallback = null;
+                }
+                els.modalAlert.classList.remove('hidden');
+            };
+
+            els.btnAlertOk.addEventListener('click', () => {
+                els.modalAlert.classList.add('hidden');
+                if(confirmCallback) confirmCallback();
+            });
+            els.btnAlertCancel.addEventListener('click', () => {
+                els.modalAlert.classList.add('hidden');
+                confirmCallback = null;
+            });
+
+            // --- Google Sheets Integration via Apps Script ---
+            const saveToGoogleSheet = async (records) => {
+                try {
+                    const WEB_APP_URL = state.config.webAppUrl;
+
+                    if (!WEB_APP_URL) {
+                        showAlert('ยังไม่ได้ตั้งค่า Web App URL', 'กรุณากำหนดค่า Web App URL (จาก Google Apps Script) ในเมนูตั้งค่าระบบก่อนส่งข้อมูล', 'error');
+                        return;
+                    }
+
+                    // แสดง loading state 
+                    els.btnSaveToGoogleSheet.innerHTML = '<i class="fas fa-spinner fa-spin"></i> กำลังส่งข้อมูล...';
+                    els.btnSaveToGoogleSheet.disabled = true;
+
+                    const response = await fetch(WEB_APP_URL, {
+                        method: "POST",
+                        headers: {
+                           "Content-Type": "text/plain;charset=utf-8",
+                        },
+                        body: JSON.stringify(records)
+                    });
+
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        showAlert("สำเร็จ", `ส่งข้อมูล ${result.rowsAdded || records.length} รายการ เข้า Google Sheet สำเร็จ`, "success");
+                    } else {
+                        throw new Error(result.message || "เกิดข้อผิดพลาดในการบันทึกข้อมูล");
+                    }
+                } catch (err) {
+                    console.error(err);
+                    if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
+                        showAlert("แจ้งเตือนการเชื่อมต่อ", "ส่งคำขอไปยังเซิร์ฟเวอร์แล้ว แต่อาจเกิดปัญหาเรื่อง CORS กรุณาตรวจสอบข้อมูลใน Google Sheet ของคุณว่าได้รับการบันทึกหรือไม่", "warning");
+                    } else {
+                        showAlert("ข้อผิดพลาด", err.message || "ไม่สามารถเชื่อมต่อกับ Google Apps Script ได้", "error");
+                    }
+                } finally {
+                    els.btnSaveToGoogleSheet.innerHTML = '<i class="fas fa-table"></i> ส่งข้อมูลเข้า Google Sheet';
+                    els.btnSaveToGoogleSheet.disabled = false;
+                }
+            };
+
+            if (els.btnSaveToGoogleSheet) {
+                 els.btnSaveToGoogleSheet.addEventListener('click', async () => {
+                    if(!state.selectedMachineId) {
+                        showAlert('แจ้งเตือน', 'กรุณาเลือกเครื่องจักรก่อนส่งข้อมูล', 'error');
+                        return;
+                    }
+                    const m = state.machines.find(x => x.id === state.selectedMachineId);
+                    const stages = getCurrentStages();
+                    if(stages.length === 0) {
+                        showAlert('แจ้งเตือน', 'ไม่มีขั้นตอนการทำงานสำหรับส่งข้อมูล', 'error');
+                        return;
+                    }
+    
+                    const records = [];
+                    for (const stage of stages) {
+                        const record = {
+                            recordID: 'REC-' + Date.now() + '-' + Math.floor(Math.random()*100),
+                            recordDate: new Date().toISOString().slice(0, 10),
+                            machineCode: m ? m.code : 'N/A',
+                            machineName: m ? m.name : 'Unknown',
+                            condition: state.selectedCondition === 'before' ? 'Before' : 'After',
+                            processStep: stage.name,
+                            cycleTime: stage.time,
+                            operator: state.config.recorderName,
+                            remark: 'Kaizen Plant Analysis (via Web App)'
+                        };
+                        records.push(record);
+                    }
+    
+                    await saveToGoogleSheet(records);
+                });
+            }
+
+            if (els.btnSaveExcelOnline) {
+                 els.btnSaveExcelOnline.style.display = 'none';
+            }
+
+            // --- Render Config & UI Headers ---
+            const updateUIConfig = () => {
+                els.headerSystemName.textContent = state.config.systemName;
+                els.pageTitle.textContent = state.config.systemName;
+                els.displayRecorderName.textContent = state.config.recorderName;
+                const initials = state.config.recorderName.split(' ')[0].substring(0, 2).toUpperCase();
+                els.displayRecorderInitials.textContent = initials || 'IE';
+            };
+
+            // --- Navigation Switcher ---
+            const switchTab = (targetId) => {
+                state.currentView = targetId;
+                els.tabs.forEach(btn => {
+                    if(btn.dataset.target === targetId) btn.classList.add('active');
+                    else btn.classList.remove('active');
+                });
+
+                els.views.forEach(view => {
+                    if(view.id === targetId) {
+                        view.classList.remove('hidden');
+                        view.classList.add('flex');
+                    } else {
+                        view.classList.add('hidden');
+                        view.classList.remove('flex');
+                    }
+                });
+
+                if(targetId === 'view-dashboard') renderDashboard();
+                if(targetId === 'view-condition') {
+                    if(!state.selectedMachineId && state.machines.length > 0) {
+                        state.selectedMachineId = state.machines[0].id;
+                    }
+                    renderConditionView();
+                }
+                if(targetId === 'view-machines') renderMachineTable();
+                if(targetId === 'view-history') renderHistoryTable();
+            };
+
+            els.tabs.forEach(btn => btn.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.target)));
+            els.goToTimerBtn.addEventListener('click', () => switchTab('view-condition'));
+
+            // --- Dashboard Logic ---
+            const populateMachineSelect = () => {
+                els.dashMachineSelect.innerHTML = '<option value="">-- ทุกเครื่องจักร --</option>';
+                state.machines.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = `[${m.code}] ${m.name}`;
+                    if(m.id === state.selectedMachineId) opt.selected = true;
+                    els.dashMachineSelect.appendChild(opt);
+                });
+            };
+
+            els.dashMachineSelect.addEventListener('change', () => {
+                state.selectedMachineId = els.dashMachineSelect.value;
+                renderDashboard();
+            });
+            els.dashConditionSelect.addEventListener('change', () => {
+                state.selectedCondition = els.dashConditionSelect.value || 'before';
+                renderDashboard();
+            });
+
+            const renderCharts = () => {
+                const mId = state.selectedMachineId;
+                const cond = state.selectedCondition;
+
+                if(!mId) {
+                    els.pieEmptyState.classList.remove('hidden');
+                    els.barEmptyState.classList.remove('hidden');
+                    if(chartPie) chartPie.destroy();
+                    if(chartBar) chartBar.destroy();
+                    return;
+                }
+
+                const dataBefore = state.data[getDataKey(mId, 'before')] || [];
+                const dataAfter = state.data[getDataKey(mId, 'after')] || [];
+                const currentData = cond === 'before' ? dataBefore : (cond === 'after' ? dataAfter : [...dataBefore, ...dataAfter]);
+
+                // Pie Chart
+                if(currentData.length === 0) {
+                    els.pieEmptyState.classList.remove('hidden');
+                    if(chartPie) chartPie.destroy();
+                } else {
+                    els.pieEmptyState.classList.add('hidden');
+                    const ctxPie = document.getElementById('pieChart').getContext('2d');
+                    const labels = currentData.map(s => s.name);
+                    const values = currentData.map(s => Number(s.time) || 0);
+                    const bgColors = currentData.map((_, i) => `hsl(${(i * 360) / currentData.length}, 70%, 50%)`);
+
+                    if(chartPie) chartPie.destroy();
+                    chartPie = new Chart(ctxPie, {
+                        type: 'doughnut',
+                        data: { labels, datasets: [{ data: values, backgroundColor: bgColors, borderWidth: 1 }] },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { position: 'right', labels: { font: { family: 'Sarabun' }, boxWidth: 12 } } },
+                            cutout: '60%'
+                        }
+                    });
+                }
+
+                // Bar Chart (Before vs After)
+                const statBefore = calculateStats(dataBefore);
+                const statAfter = calculateStats(dataAfter);
+
+                if(statBefore.totalTime === 0 && statAfter.totalTime === 0) {
+                    els.barEmptyState.classList.remove('hidden');
+                    if(chartBar) chartBar.destroy();
+                } else {
+                    els.barEmptyState.classList.add('hidden');
+                    const ctxBar = document.getElementById('barChart').getContext('2d');
+                    
+                    if(chartBar) chartBar.destroy();
+                    chartBar = new Chart(ctxBar, {
+                        type: 'bar',
+                        data: {
+                            labels: ['Cycle Time รวม', 'เวลาคอขวด (Bottleneck)'],
+                            datasets: [
+                                { label: 'ก่อนปรับปรุง (Before)', data: [statBefore.totalTime, statBefore.maxTime], backgroundColor: '#cbd5e1', borderRadius: 4 },
+                                { label: 'หลังปรับปรุง (After)', data: [statAfter.totalTime, statAfter.maxTime], backgroundColor: '#10b981', borderRadius: 4 }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { position: 'top', labels: { font: { family: 'Sarabun' } } } },
+                            scales: { y: { beginAtZero: true, title: { display: true, text: 'เวลา (วินาที)', font: { family: 'Sarabun' } } } }
+                        }
+                    });
+                }
+            };
+
+            const renderDashboard = () => {
+                populateMachineSelect();
+                const mId = state.selectedMachineId;
+                const cond = state.selectedCondition;
+
+                let targetStages = [];
+                if(mId) {
+                    if(cond === 'before' || cond === 'after') {
+                        targetStages = state.data[getDataKey(mId, cond)] || [];
+                    } else {
+                        targetStages = [
+                            ...(state.data[getDataKey(mId, 'before')] || []),
+                            ...(state.data[getDataKey(mId, 'after')] || [])
+                        ];
+                    }
+                }
+
+                const stats = calculateStats(targetStages);
+                
+                let diffTime = 0;
+                let diffPercent = 0;
+                if(mId) {
+                    const bTime = calculateStats(state.data[getDataKey(mId, 'before')] || []).totalTime;
+                    const aTime = calculateStats(state.data[getDataKey(mId, 'after')] || []).totalTime;
+                    if(bTime > 0 && aTime > 0 && bTime > aTime) {
+                        diffTime = bTime - aTime;
+                        diffPercent = (diffTime / bTime) * 100;
+                    }
+                }
+
+                els.statTotalTime.textContent = formatNumber(stats.totalTime);
+                els.statTotalTimeMin.textContent = formatNumber(stats.totalTime / 60);
+
+                if (stats.bottleneckStage && stats.maxTime > 0) {
+                    els.statBottleneckName.textContent = stats.bottleneckStage.name;
+                    els.statBottleneckTime.textContent = formatNumber(stats.maxTime);
+                } else {
+                    els.statBottleneckName.textContent = "-";
+                    els.statBottleneckTime.textContent = "0.00";
+                }
+
+                els.statImprovementTime.textContent = formatNumber(diffTime);
+                els.statImprovementPercent.textContent = formatNumber(diffPercent);
+                els.statTotalRecords.textContent = state.history.length;
+
+                if (stats.totalTime === 0) {
+                    els.recommendationText.textContent = "กรุณาเลือกเครื่องจักรและเพิ่มขั้นตอนการทำงาน ระบบจะวิเคราะห์หาจุดที่เป็นคอขวดให้อัตโนมัติ";
+                } else {
+                    let text = `กระบวนการผลิตรวมใช้เวลา ${formatNumber(stats.totalTime)} วินาที กำลังการผลิตประมาณ ${stats.throughput} ชิ้น/ชั่วโมง. `;
+                    if(stats.bottleneckStage) {
+                        text += `พบจุดคอขวดหลัก (Bottleneck) ที่ขั้นตอน <strong>"${stats.bottleneckStage.name}"</strong> ใช้เวลา ${formatNumber(stats.maxTime)} วินาที ควรมุ่งเน้นทำ Kaizen ที่ขั้นตอนนี้เพื่อเพิ่ม Overall Throughput`;
+                    }
+                    els.recommendationText.innerHTML = text;
+                }
+
+                renderCharts();
+            };
+
+            els.btnSaveHistoryRecord.addEventListener('click', () => {
+                if(!state.selectedMachineId) {
+                    showAlert('แจ้งเตือน', 'กรุณาเลือกเครื่องจักรก่อนบันทึกลงประวัติ', 'error');
+                    return;
+                }
+                const m = state.machines.find(x => x.id === state.selectedMachineId);
+                const stages = getCurrentStages();
+                const stats = calculateStats(stages);
+
+                if(stages.length === 0) {
+                    showAlert('แจ้งเตือน', 'ไม่มีขั้นตอนการทำงานสำหรับบันทึก', 'error');
+                    return;
+                }
+
+                const record = {
+                    id: 'hist_' + Date.now(),
+                    timestamp: new Date().toLocaleString('th-TH'),
+                    machineCode: m ? m.code : 'N/A',
+                    machineName: m ? m.name : 'Unknown',
+                    condition: state.selectedCondition === 'before' ? 'ก่อนปรับปรุง (Before)' : 'หลังปรับปรุง (After)',
+                    stageCount: stats.stageCount,
+                    totalTime: stats.totalTime,
+                    recorder: state.config.recorderName,
+                    stages: JSON.parse(JSON.stringify(stages))
+                };
+
+                state.history.unshift(record);
+                saveStateToStorage();
+                showAlert('สำเร็จ', 'บันทึกข้อมูลลงในประวัติเรียบร้อยแล้ว', 'success');
+            });
+
+            // --- Condition & Stopwatch Logic ---
+            els.selectConditionToggle.addEventListener('change', (e) => {
+                state.selectedCondition = e.target.value;
+                renderConditionView();
+            });
+
+            const updateStageData = (id, prop, value) => {
+                const stages = getCurrentStages();
+                const stage = stages.find(s => s.id === id);
+                if(stage) {
+                    stage[prop] = prop === 'time' ? (Number(value) || 0) : value;
+                    saveStateToStorage();
+                    renderConditionUI();
+                }
+            };
+
+            const toggleTimer = (stageId, inputEl, displayEl, btnStart, btnStop) => {
+                if(!state.activeTimers[stageId]) {
+                    const startTime = Date.now();
+                    const existingTime = parseFloat(inputEl.value) || 0;
+                    
+                    btnStart.classList.add('hidden');
+                    btnStop.classList.remove('hidden');
+                    
+                    const interval = setInterval(() => {
+                        const elapsedMs = Date.now() - startTime;
+                        const totalSecs = existingTime + (elapsedMs / 1000);
+                        displayEl.textContent = formatNumber(totalSecs);
+                        state.activeTimers[stageId].currentVal = totalSecs;
+                    }, 50);
+
+                    state.activeTimers[stageId] = { interval, currentVal: existingTime };
+                } else {
+                    clearInterval(state.activeTimers[stageId].interval);
+                    const finalTime = state.activeTimers[stageId].currentVal;
+                    delete state.activeTimers[stageId];
+                    
+                    btnStart.classList.remove('hidden');
+                    btnStop.classList.add('hidden');
+                    
+                    inputEl.value = formatNumber(finalTime);
+                    updateStageData(stageId, 'time', finalTime);
+                }
+            };
+
+            const renderConditionUI = () => {
+                const stages = getCurrentStages();
+                const stats = calculateStats(stages);
+                
+                const m = state.machines.find(x => x.id === state.selectedMachineId);
+                els.lblCurrentMachine.textContent = m ? `[${m.code}] ${m.name}` : '-';
+                els.lblCurrentConditionText.textContent = state.selectedCondition === 'before' ? 'ก่อนปรับปรุง (Before)' : 'หลังปรับปรุง (After)';
+                els.selectConditionToggle.value = state.selectedCondition;
+                els.lblSumTime.textContent = formatNumber(stats.totalTime);
+
+                // Process Flow Diagram
+                els.processContainer.innerHTML = '';
+                if(stages.length === 0) {
+                    els.processContainer.appendChild(els.processEmptyState);
+                    els.stageListContainer.innerHTML = '';
+                    els.stageListContainer.appendChild(els.stageListEmpty);
+                    return;
+                }
+
+                const line = document.createElement('div');
+                line.className = 'process-line';
+                els.processContainer.appendChild(line);
+
+                const flowWrapper = document.createElement('div');
+                flowWrapper.className = 'flex items-center justify-between min-w-max w-full px-8 gap-8 z-10 relative mt-4';
+
+                stages.forEach((stage, index) => {
+                    const isBottleneck = (stage.id === stats.bottleneckStage?.id && stats.maxTime > 0);
+                    
+                    const node = document.createElement('div');
+                    node.className = `flex flex-col items-center bg-white p-3 rounded-xl border-2 w-32 shadow-sm transition-all stage-enter
+                                      ${isBottleneck ? 'border-red-500 bottleneck-node z-20' : 'border-blue-200 z-10 hover:border-blue-400'}`;
+
+                    if (isBottleneck) {
+                        const badge = document.createElement('div');
+                        badge.className = 'absolute -top-3 bg-red-500 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-md whitespace-nowrap z-30 flex items-center gap-1';
+                        badge.innerHTML = '<i class="fas fa-fire"></i> คอขวด';
+                        node.appendChild(badge);
+                    }
+
+                    node.innerHTML += `
+                        <div class="w-10 h-10 rounded-full ${isBottleneck ? 'bg-red-100 text-red-500' : 'bg-blue-100 text-blue-500'} flex items-center justify-center text-xl mb-2 shadow-inner">
+                            <i class="fas fa-cog"></i>
+                        </div>
+                        <div class="text-xs font-bold text-center leading-tight w-full truncate text-gray-700" title="${stage.name}">${stage.name}</div>
+                        <div class="mt-2 text-sm font-black ${isBottleneck ? 'text-red-600' : 'text-[#4318ff]'} bg-gray-50 px-2 py-0.5 rounded w-full text-center border border-gray-100">
+                            ${formatNumber(stage.time)} s
+                        </div>
+                    `;
+                    flowWrapper.appendChild(node);
+
+                    if (index < stages.length - 1) {
+                        const arrow = document.createElement('div');
+                        arrow.className = 'text-gray-300 z-10 flex flex-col items-center justify-center';
+                        arrow.innerHTML = '<i class="fas fa-arrow-right text-xl"></i>';
+                        flowWrapper.appendChild(arrow);
+                    }
+                });
+                els.processContainer.appendChild(flowWrapper);
+
+                // Stage List
+                els.stageListContainer.innerHTML = '';
+                stages.forEach((stage, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'bg-white border border-gray-200 rounded-xl p-4 flex flex-col md:flex-row gap-4 items-center shadow-sm hover:shadow-md transition';
+                    
+                    item.innerHTML = `
+                        <div class="flex items-center gap-3 w-full md:w-5/12">
+                            <div class="w-8 h-8 rounded-full bg-[#eef2ff] text-[#4318ff] font-bold flex items-center justify-center shrink-0 border border-indigo-100">${index + 1}</div>
+                            <div class="flex-grow">
+                                <input type="text" class="custom-input w-full font-medium text-sm text-gray-700 stage-name-input" value="${stage.name}" placeholder="ชื่อขั้นตอน">
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center gap-4 w-full md:w-7/12 justify-between bg-gray-50 p-2 rounded-lg border border-gray-100">
+                            <div class="flex items-center gap-3">
+                                <button class="btn-start w-12 h-10 rounded-lg bg-green-500 hover:bg-green-600 text-white flex items-center justify-center shadow-sm transition">
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                <button class="btn-stop w-12 h-10 rounded-lg bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-sm transition hidden">
+                                    <i class="fas fa-stop"></i>
+                                </button>
+                                <div class="timer-display text-2xl font-black text-gray-800 w-24 text-center bg-white border border-gray-200 rounded py-1 shadow-inner">
+                                    ${formatNumber(stage.time)}
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center gap-2">
+                                <input type="number" min="0" step="0.1" class="custom-input w-20 text-right font-medium text-sm text-gray-700 stage-time-input" value="${stage.time > 0 ? stage.time : ''}" placeholder="0.0">
+                                <span class="text-xs text-gray-500 font-bold">วิ.</span>
+                            </div>
+                            
+                            <button class="btn-del text-gray-300 hover:text-red-500 p-2 transition">
+                                <i class="fas fa-trash-alt text-lg"></i>
+                            </button>
+                        </div>
+                    `;
+
+                    const nameInput = item.querySelector('.stage-name-input');
+                    nameInput.addEventListener('change', (e) => updateStageData(stage.id, 'name', e.target.value));
+
+                    const timeInput = item.querySelector('.stage-time-input');
+                    const timeDisplay = item.querySelector('.timer-display');
+                    
+                    timeInput.addEventListener('change', (e) => {
+                        updateStageData(stage.id, 'time', e.target.value);
+                        timeDisplay.textContent = formatNumber(e.target.value);
+                    });
+
+                    const btnStart = item.querySelector('.btn-start');
+                    const btnStop = item.querySelector('.btn-stop');
+                    
+                    if(state.activeTimers[stage.id]) {
+                        btnStart.classList.add('hidden');
+                        btnStop.classList.remove('hidden');
+                    }
+
+                    btnStart.addEventListener('click', () => toggleTimer(stage.id, timeInput, timeDisplay, btnStart, btnStop));
+                    btnStop.addEventListener('click', () => toggleTimer(stage.id, timeInput, timeDisplay, btnStart, btnStop));
+
+                    item.querySelector('.btn-del').addEventListener('click', () => {
+                        if(state.activeTimers[stage.id]) clearInterval(state.activeTimers[stage.id].interval);
+                        const key = getDataKey(state.selectedMachineId, state.selectedCondition);
+                        state.data[key] = state.data[key].filter(s => s.id !== stage.id);
+                        saveStateToStorage();
+                        renderConditionUI();
+                    });
+
+                    els.stageListContainer.appendChild(item);
+                });
+            };
+
+            const renderConditionView = () => { renderConditionUI(); };
+
+            els.btnAddStage.addEventListener('click', () => {
+                const stages = getCurrentStages();
+                stages.push({
+                    id: 's_' + Date.now(),
+                    name: `ขั้นตอนที่ ${stages.length + 1}`,
+                    time: 0
+                });
+                saveStateToStorage();
+                renderConditionUI();
+            });
+
+            els.btnClearStages.addEventListener('click', () => {
+                showAlert('ยืนยันล้างข้อมูล', 'คุณต้องการลบขั้นตอนทั้งหมดในเงื่อนไขนี้ใช่หรือไม่?', 'confirm', () => {
+                    const stages = getCurrentStages();
+                    stages.forEach(s => { if(state.activeTimers[s.id]) clearInterval(state.activeTimers[s.id].interval); });
+                    state.activeTimers = {};
+                    state.data[getDataKey(state.selectedMachineId, state.selectedCondition)] = [];
+                    saveStateToStorage();
+                    renderConditionUI();
+                });
+            });
+
+            // --- Machine Master Management ---
+            const renderMachineTable = () => {
+                els.machineTableBody.innerHTML = '';
+                if(state.machines.length === 0) {
+                    els.machineTableBody.innerHTML = `<tr><td colspan="4" class="text-center py-8 text-gray-400">ไม่มีข้อมูลเครื่องจักร</td></tr>`;
+                    return;
+                }
+
+                state.machines.forEach(m => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-indigo-50 transition-colors group';
+                    tr.innerHTML = `
+                        <td class="py-3 px-6 text-sm font-medium text-gray-600">${m.code}</td>
+                        <td class="py-3 px-6 text-sm font-bold text-[#2b3674]">${m.name}</td>
+                        <td class="py-3 px-6 text-sm text-gray-500">${m.line}</td>
+                        <td class="py-3 px-6 text-sm text-right opacity-50 group-hover:opacity-100 transition-opacity">
+                            <button class="btn-edit-m bg-white border border-gray-200 text-blue-500 hover:bg-blue-50 px-3 py-1 rounded shadow-sm mr-2" data-id="${m.id}">
+                                <i class="fas fa-pen text-xs"></i> แก้ไข
+                            </button>
+                            <button class="btn-del-m bg-white border border-gray-200 text-red-500 hover:bg-red-50 px-3 py-1 rounded shadow-sm" data-id="${m.id}">
+                                <i class="fas fa-trash text-xs"></i> ลบ
+                            </button>
+                        </td>
+                    `;
+                    els.machineTableBody.appendChild(tr);
+                });
+
+                document.querySelectorAll('.btn-edit-m').forEach(btn => {
+                    btn.addEventListener('click', (e) => openMachineModal(e.currentTarget.dataset.id));
+                });
+                document.querySelectorAll('.btn-del-m').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const id = e.currentTarget.dataset.id;
+                        showAlert('ยืนยันลบเครื่องจักร', 'หากลบ ข้อมูลเวลาที่ผูกกับเครื่องจักรนี้จะหายไปทั้งหมด ยืนยันหรือไม่?', 'confirm', () => {
+                            state.machines = state.machines.filter(x => x.id !== id);
+                            Object.keys(state.data).forEach(k => { if(k.startsWith(id + '_')) delete state.data[k]; });
+                            if(state.selectedMachineId === id) {
+                                state.selectedMachineId = state.machines.length > 0 ? state.machines[0].id : '';
+                            }
+                            saveStateToStorage();
+                            renderMachineTable();
+                            populateMachineSelect();
+                        });
+                    });
+                });
+            };
+
+            const openMachineModal = (id = null) => {
+                if(id) {
+                    const m = state.machines.find(x => x.id === id);
+                    els.modalMachineTitle.textContent = 'แก้ไขข้อมูลเครื่องจักร';
+                    els.inpMachineId.value = m.id;
+                    els.inpMachineCode.value = m.code;
+                    els.inpMachineName.value = m.name;
+                    els.inpMachineLine.value = m.line;
+                } else {
+                    els.modalMachineTitle.textContent = 'เพิ่มเครื่องจักรใหม่';
+                    els.inpMachineId.value = '';
+                    els.inpMachineCode.value = '';
+                    els.inpMachineName.value = '';
+                    els.inpMachineLine.value = '';
+                }
+                els.modalMachine.classList.remove('hidden');
+                setTimeout(() => els.modalMachineContent.classList.remove('scale-95'), 10);
+            };
+
+            const closeMachineModal = () => {
+                els.modalMachineContent.classList.add('scale-95');
+                setTimeout(() => els.modalMachine.classList.add('hidden'), 200);
+            };
+
+            els.btnNewMachine.addEventListener('click', () => openMachineModal());
+            els.btnCloseMachineModal.addEventListener('click', closeMachineModal);
+            els.btnCancelMachine.addEventListener('click', closeMachineModal);
+
+            els.btnSaveMachine.addEventListener('click', () => {
+                const id = els.inpMachineId.value;
+                const code = els.inpMachineCode.value.trim();
+                const name = els.inpMachineName.value.trim();
+                const line = els.inpMachineLine.value.trim();
+
+                if(!code || !name) {
+                    showAlert('ข้อมูลไม่ครบ', 'กรุณากรอก รหัสเครื่องจักร และ ชื่อเครื่องจักร ให้ครบถ้วน', 'error');
+                    return;
+                }
+
+                if(id) {
+                    const idx = state.machines.findIndex(x => x.id === id);
+                    if(idx > -1) state.machines[idx] = { ...state.machines[idx], code, name, line };
+                } else {
+                    const newId = 'm_' + Date.now();
+                    state.machines.push({ id: newId, code, name, line });
+                    if(!state.selectedMachineId) state.selectedMachineId = newId;
+                }
+                saveStateToStorage();
+                renderMachineTable();
+                populateMachineSelect();
+                closeMachineModal();
+                showAlert('สำเร็จ', 'บันทึกข้อมูลเครื่องจักรเรียบร้อยแล้ว', 'success');
+            });
+
+            // --- History & Export Logic ---
+            const renderHistoryTable = () => {
+                els.historyTableBody.innerHTML = '';
+                if(state.history.length === 0) {
+                    els.historyTableBody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-400">ยังไม่มีประวัติการบันทึกข้อมูล</td></tr>`;
+                    return;
+                }
+
+                state.history.forEach((h, index) => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-indigo-50 transition-colors';
+                    tr.innerHTML = `
+                        <td class="py-3 px-6 text-sm text-gray-600">${h.timestamp}</td>
+                        <td class="py-3 px-6 text-sm font-bold text-[#2b3674]">[${h.machineCode}] ${h.machineName}</td>
+                        <td class="py-3 px-6 text-sm"><span class="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-semibold">${h.condition}</span></td>
+                        <td class="py-3 px-6 text-sm text-center">${h.stageCount}</td>
+                        <td class="py-3 px-6 text-sm font-black text-emerald-600">${formatNumber(h.totalTime)} s</td>
+                        <td class="py-3 px-6 text-sm text-gray-500">${h.recorder}</td>
+                        <td class="py-3 px-6 text-sm text-right">
+                            <button class="btn-del-hist bg-white border border-gray-200 text-red-500 hover:bg-red-50 px-3 py-1 rounded shadow-sm" data-index="${index}">
+                                <i class="fas fa-trash text-xs"></i> ลบ
+                            </button>
+                        </td>
+                    `;
+                    els.historyTableBody.appendChild(tr);
+                });
+
+                document.querySelectorAll('.btn-del-hist').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const idx = parseInt(e.currentTarget.dataset.index);
+                        showAlert('ยืนยันลบประวัติ', 'คุณต้องการลบรายการประวัตินี้ใช่หรือไม่?', 'confirm', () => {
+                            state.history.splice(idx, 1);
+                            saveStateToStorage();
+                            renderHistoryTable();
+                        });
+                    });
+                });
+            };
+
+            // Export to CSV / Excel
+            els.btnExportCSV.addEventListener('click', () => {
+                if(state.history.length === 0) {
+                    showAlert('ไม่มีข้อมูล', 'ยังไม่มีข้อมูลประวัติสำหรับการ Export', 'error');
+                    return;
+                }
+
+                let csvContent = "\uFEFFID,Timestamp,MachineCode,MachineName,Condition,StageCount,TotalTimeSec,Recorder\n";
+                state.history.forEach(h => {
+                    csvContent += `"${h.id}","${h.timestamp}","${h.machineCode}","${h.machineName}","${h.condition}",${h.stageCount},${h.totalTime},"${h.recorder}"\n`;
+                });
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Cycle_Bottleneck_Report_${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showAlert('สำเร็จ', 'Export ไฟล์ CSV / Excel สำเร็จแล้ว', 'success');
+            });
+
+            // Backup JSON
+            els.btnBackupJSON.addEventListener('click', () => {
+                const backupData = {
+                    machines: state.machines,
+                    data: state.data,
+                    history: state.history,
+                    config: state.config,
+                    backupDate: new Date().toISOString()
+                };
+                const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Plant_Cycle_Backup_${new Date().toISOString().slice(0,10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showAlert('สำรองข้อมูลสำเร็จ', 'ดาวน์โหลดไฟล์ Backup JSON เรียบร้อยแล้ว สามารถนำไฟล์นี้ส่งให้เพื่อนร่วมทีมใน Microsoft Teams ได้', 'success');
+            });
+
+            // Restore JSON
+            els.inpRestoreFile.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const parsed = JSON.parse(event.target.result);
+                        if(parsed.machines && parsed.data) {
+                            showAlert('ยืนยัน Restore', 'การกู้คืนข้อมูลจะแทนที่ข้อมูลปัจจุบันทั้งหมด ยืนยันหรือไม่?', 'confirm', () => {
+                                state.machines = parsed.machines;
+                                state.data = parsed.data;
+                                state.history = parsed.history || [];
+                                if(parsed.config) state.config = { ...defaultConfig, ...parsed.config };
+                                saveStateToStorage();
+                                updateUIConfig();
+                                populateMachineSelect();
+                                renderDashboard();
+                                showAlert('สำเร็จ', 'กู้คืนข้อมูล (Restore) เรียบร้อยแล้ว', 'success');
+                            });
+                        } else {
+                            showAlert('ไฟล์ไม่ถูกต้อง', 'โครงสร้างไฟล์ Backup ไม่ถูกต้อง', 'error');
+                        }
+                    } catch(err) {
+                        showAlert('เกิดข้อผิดพลาด', 'ไม่สามารถอ่านไฟล์ JSON ได้', 'error');
+                    }
+                    els.inpRestoreFile.value = '';
+                };
+                reader.readAsText(file);
+            });
+
+            // --- Settings Modal Logic ---
+            els.btnOpenSettings.addEventListener('click', () => {
+                els.inpSystemName.value = state.config.systemName;
+                els.inpRecorderName.value = state.config.recorderName;
+                els.inpWebAppUrl.value = state.config.webAppUrl || '';
+                els.modalSettings.classList.remove('hidden');
+                setTimeout(() => els.modalSettingsContent.classList.remove('scale-95'), 10);
+            });
+
+            const closeSettingsModal = () => {
+                els.modalSettingsContent.classList.add('scale-95');
+                setTimeout(() => els.modalSettings.classList.add('hidden'), 200);
+            };
+
+            els.btnCloseSettingsModal.addEventListener('click', closeSettingsModal);
+            els.btnCancelSettings.addEventListener('click', closeSettingsModal);
+
+            els.btnSaveSettings.addEventListener('click', () => {
+                const sName = els.inpSystemName.value.trim();
+                const rName = els.inpRecorderName.value.trim();
+                const webUrl = els.inpWebAppUrl.value.trim();
+
+                if(sName) state.config.systemName = sName;
+                if(rName) state.config.recorderName = rName;
+                state.config.webAppUrl = webUrl;
+
+                saveStateToStorage();
+                updateUIConfig();
+                closeSettingsModal();
+                showAlert('สำเร็จ', 'บันทึกการตั้งค่าระบบเรียบร้อยแล้ว', 'success');
+            });
+
+            // --- App Initialization ---
+            const init = () => {
+                updateUIConfig();
+                renderMachineTable();
+                populateMachineSelect();
+                if(state.machines.length > 0) {
+                    state.selectedMachineId = state.machines[0].id;
+                }
+                els.dashMachineSelect.value = state.selectedMachineId;
+                switchTab('view-dashboard');
+            };
+
+            init();
+        });
+    </script>
+</body>
+</html>
